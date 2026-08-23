@@ -72,3 +72,28 @@ func TestTemplatesRender(t *testing.T) {
 		}
 	}
 }
+
+// TestMailFailurePageRenders covers the page shown when a verification email
+// cannot be sent: it is the only mail failure a user sees rather than one the
+// log absorbs, so a broken template here would replace it with a blank 503.
+func TestMailFailurePageRenders(t *testing.T) {
+	tmpl, err := template.New("root").Funcs(templateFuncs).Parse(pageTemplates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	err = tmpl.ExecuteTemplate(&buf, "message", map[string]any{
+		"Title": "Email not sent", "SignedIn": true, "Admin": false,
+		"Back": "/account", "BackLabel": "Back to your account",
+		"Heading": "Verification email could not be sent",
+		"Message": "Your display name was saved.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Verification email could not be sent", "display name was saved", `class="btn" href="/account">Back to your account`} {
+		if !bytes.Contains(buf.Bytes(), []byte(want)) {
+			t.Fatalf("page is missing %q", want)
+		}
+	}
+}

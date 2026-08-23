@@ -47,7 +47,7 @@ const pageTemplates = `
 <div class="center">
   <h1>{{.Heading}}</h1>
   <p class="lede">{{.Message}}</p>
-  <div class="row-actions"><a class="btn" href="/">Back to Claustra</a></div>
+  <div class="row-actions"><a class="btn" href="{{if .Back}}{{.Back}}{{else}}/{{end}}">{{if .BackLabel}}{{.BackLabel}}{{else}}Back to Claustra{{end}}</a></div>
 </div>
 {{template "foot" .}}{{end}}
 

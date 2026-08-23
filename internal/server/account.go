@@ -133,9 +133,21 @@ func (a *App) profileUpdate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			link := a.Config.Issuer + "/email/verify?token=" + url.QueryEscape(token)
+			// Every other message in Claustra is sent through sendAsync and a
+			// failure only reaches the log. This one is reported, because the
+			// address stays inactive until its link is opened and a silent
+			// success would leave the account looking like it has recovery it
+			// does not. 503, not 502: the request was fine and the origin is
+			// healthy - a 502 from here is indistinguishable from the proxy
+			// in front having failed.
 			if err = a.Mailer.Send(r.Context(), email, "Verify your Claustra email", "Open this one-time link within one hour:\n\n"+link+"\n\nIf you did not request this, ignore the message."); err != nil {
 				a.Logger.Error("send verification email", "error", err)
-				http.Error(w, "could not send verification email", 502)
+				a.render(w, http.StatusServiceUnavailable, "message", map[string]any{
+					"Title": "Email not sent", "SignedIn": true, "Admin": session.Admin,
+					"Back": "/account", "BackLabel": "Back to your account",
+					"Heading": "Verification email could not be sent",
+					"Message": "Your display name was saved. The address was not added: it becomes active only once its verification link is opened, and that message could not be sent right now.",
+				})
 				return
 			}
 			_ = normalized
