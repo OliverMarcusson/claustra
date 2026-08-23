@@ -43,12 +43,39 @@ type PublicSigningKey struct {
 	KeyID string
 }
 
-func New(cfg config.Config, st *store.Store, signingKey *rsa.PrivateKey, keyID string, previous []PublicSigningKey, logger *slog.Logger) (*App, error) {
-	wa, err := webauthn.New(&webauthn.Config{
+// ChallengeTTL bounds a WebAuthn ceremony. It is also the lifetime written to
+// webauthn_challenges, so the row and the library agree on when a ceremony is
+// too old to finish.
+const ChallengeTTL = 5 * time.Minute
+
+// newWebAuthn builds the relying party. Timeouts.Enforce is the load-bearing
+// setting: without it the library leaves SessionData.Expires at the zero time,
+// every challenge row is stored as expired, and every ceremony fails to finish
+// with "challenge expired or already used". The durations are stated rather
+// than inherited so a library default cannot quietly change the window.
+func newWebAuthn(cfg config.Config) (*webauthn.WebAuthn, error) {
+	timeouts := webauthn.TimeoutConfig{Enforce: true, Timeout: ChallengeTTL, TimeoutUVD: ChallengeTTL}
+	return webauthn.New(&webauthn.Config{
 		RPID: cfg.RPID, RPDisplayName: cfg.RPDisplayName, RPOrigins: []string{cfg.Issuer},
 		AttestationPreference:  protocol.PreferNoAttestation,
 		AuthenticatorSelection: protocol.AuthenticatorSelection{ResidentKey: protocol.ResidentKeyRequirementRequired, UserVerification: protocol.VerificationRequired},
+		Timeouts:               webauthn.TimeoutsConfig{Login: timeouts, Registration: timeouts},
 	})
+}
+
+// challengeExpiry is what goes in the database. The library fills Expires in
+// only while it is enforcing timeouts; a zero there would store a challenge
+// that ConsumeChallenge can never match, so it falls back rather than trusting
+// the configuration to stay correct.
+func challengeExpiry(expires time.Time) time.Time {
+	if expires.IsZero() {
+		return time.Now().UTC().Add(ChallengeTTL)
+	}
+	return expires.UTC()
+}
+
+func New(cfg config.Config, st *store.Store, signingKey *rsa.PrivateKey, keyID string, previous []PublicSigningKey, logger *slog.Logger) (*App, error) {
+	wa, err := newWebAuthn(cfg)
 	if err != nil {
 		return nil, err
 	}

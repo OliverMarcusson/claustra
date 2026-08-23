@@ -38,7 +38,7 @@ func (a *App) addPasskeyBegin(w http.ResponseWriter, r *http.Request) {
 	sessionJSON, _ := json.Marshal(data)
 	continuation, _ := json.Marshal(ceremonyContinuation{Continue: "/account"})
 	uid := session.User.ID
-	if err = a.Store.PutChallenge(r.Context(), store.Challenge{Hash: store.HashSecret(raw), Operation: "add_passkey", TransactionID: base64.RawURLEncoding.EncodeToString(session.Session.Hash), UserID: &uid, UserHandle: session.User.WebAuthnHandle, SessionData: sessionJSON, Continuation: continuation, ExpiresAt: data.Expires}); err != nil {
+	if err = a.Store.PutChallenge(r.Context(), store.Challenge{Hash: store.HashSecret(raw), Operation: "add_passkey", TransactionID: base64.RawURLEncoding.EncodeToString(session.Session.Hash), UserID: &uid, UserHandle: session.User.WebAuthnHandle, SessionData: sessionJSON, Continuation: continuation, ExpiresAt: challengeExpiry(data.Expires)}); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "could not create challenge"})
 		return
 	}

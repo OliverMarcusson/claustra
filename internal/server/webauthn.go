@@ -62,7 +62,7 @@ func (a *App) registrationBegin(w http.ResponseWriter, r *http.Request) {
 	}
 	continuationJSON, _ := json.Marshal(continuation)
 	uid := user.ID
-	challenge := store.Challenge{Hash: store.HashSecret(txToken), Operation: "register", TransactionID: uuid.NewString(), UserID: &uid, UserHandle: handle, SessionData: sessionJSON, Continuation: continuationJSON, ExpiresAt: sessionData.Expires}
+	challenge := store.Challenge{Hash: store.HashSecret(txToken), Operation: "register", TransactionID: uuid.NewString(), UserID: &uid, UserHandle: handle, SessionData: sessionJSON, Continuation: continuationJSON, ExpiresAt: challengeExpiry(sessionData.Expires)}
 	if err := a.Store.PutChallenge(r.Context(), challenge); err != nil {
 		a.Logger.Error("store registration challenge", "error", err)
 		writeJSON(w, 500, map[string]string{"error": "could not create challenge"})
@@ -136,7 +136,7 @@ func (a *App) loginBegin(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionJSON, _ := json.Marshal(sessionData)
 	continuationJSON, _ := json.Marshal(ceremonyContinuation{Continue: safeContinuation(input.Continue)})
-	if err := a.Store.PutChallenge(r.Context(), store.Challenge{Hash: store.HashSecret(txToken), Operation: "login", TransactionID: uuid.NewString(), SessionData: sessionJSON, Continuation: continuationJSON, ExpiresAt: sessionData.Expires}); err != nil {
+	if err := a.Store.PutChallenge(r.Context(), store.Challenge{Hash: store.HashSecret(txToken), Operation: "login", TransactionID: uuid.NewString(), SessionData: sessionJSON, Continuation: continuationJSON, ExpiresAt: challengeExpiry(sessionData.Expires)}); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "could not create challenge"})
 		return
 	}

@@ -70,7 +70,7 @@ func (a *App) deletionCancelBegin(w http.ResponseWriter, r *http.Request) {
 	}
 	txToken, _ := security.RandomToken(32)
 	sessionJSON, _ := json.Marshal(sessionData)
-	if err = a.Store.PutChallenge(r.Context(), store.Challenge{Hash: store.HashSecret(txToken), Operation: "delete_cancel", TransactionID: uuid.NewString(), SessionData: sessionJSON, Continuation: json.RawMessage(`{}`), ExpiresAt: sessionData.Expires}); err != nil {
+	if err = a.Store.PutChallenge(r.Context(), store.Challenge{Hash: store.HashSecret(txToken), Operation: "delete_cancel", TransactionID: uuid.NewString(), SessionData: sessionJSON, Continuation: json.RawMessage(`{}`), ExpiresAt: challengeExpiry(sessionData.Expires)}); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "could not create challenge"})
 		return
 	}

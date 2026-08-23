@@ -84,7 +84,7 @@ func (a *App) recoveryBegin(w http.ResponseWriter, r *http.Request) {
 	txToken, _ := security.RandomToken(32)
 	sessionJSON, _ := json.Marshal(sessionData)
 	continuationJSON, _ := json.Marshal(ceremonyContinuation{Continue: "/recover?pending=1", BootstrapHash: tokenHash})
-	challenge := store.Challenge{Hash: store.HashSecret(txToken), Operation: "recovery", TransactionID: recoveryIDText, UserID: &userID, UserHandle: user.WebAuthnHandle, SessionData: sessionJSON, Continuation: continuationJSON, ExpiresAt: sessionData.Expires}
+	challenge := store.Challenge{Hash: store.HashSecret(txToken), Operation: "recovery", TransactionID: recoveryIDText, UserID: &userID, UserHandle: user.WebAuthnHandle, SessionData: sessionJSON, Continuation: continuationJSON, ExpiresAt: challengeExpiry(sessionData.Expires)}
 	if err = a.Store.PutChallenge(r.Context(), challenge); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "could not create challenge"})
 		return
