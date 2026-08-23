@@ -10,9 +10,11 @@ import (
 	_ "image/jpeg"
 	"image/png"
 	"io"
+	"mime"
 	"net/http"
 	"net/mail"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -82,8 +84,65 @@ func (a *App) requireRecent(w http.ResponseWriter, r *http.Request, session sess
 		"Title": "Confirm it is you", "SignedIn": true, "Admin": session.Admin,
 		"LogoutCSRF": security.CSRF(session.RawToken, "account"),
 		"Continue":   reauthTarget(r),
+		"Resume":     pendingSubmission(w, r),
 	})
 	return false
+}
+
+// resumeField is one value of the form that requireRecent turned away.
+type resumeField struct{ Name, Value string }
+
+// resumable is the submission to replay once the passkey has been used.
+type resumable struct {
+	Action    string
+	CSRFScope string
+	Fields    []resumeField
+}
+
+// pendingSubmission preserves the form that triggered the reauthentication so
+// the ceremony can finish the job the user actually asked for. Without it the
+// bounce is quietly destructive: the ceremony succeeds, the browser lands on a
+// freshly rendered page, and everything typed into the form is gone with
+// nothing on screen to say so.
+//
+// Only ordinary form posts are carried. A JSON fetch or a multipart upload
+// cannot be rebuilt out of hidden inputs, and reading either body here would
+// consume it before the handler that follows ever sees it.
+func pendingSubmission(w http.ResponseWriter, r *http.Request) *resumable {
+	if r.Method != http.MethodPost {
+		return nil
+	}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/x-www-form-urlencoded" {
+		return nil
+	}
+	// Several handlers reach requireRecent before setting their own cap, so
+	// the cap is applied here too rather than trusting the caller's order.
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+	if err = r.ParseForm(); err != nil {
+		return nil
+	}
+	pending := &resumable{Action: relativeRequestURI(r), CSRFScope: "account"}
+	if strings.HasPrefix(r.URL.Path, "/admin/") {
+		pending.CSRFScope = "admin-clients"
+	}
+	for name, values := range r.PostForm {
+		// The posted token is bound to the session the ceremony is about to
+		// replace, so it is dropped and a live one is stamped in on success.
+		if name == "csrf" {
+			continue
+		}
+		for _, value := range values {
+			pending.Fields = append(pending.Fields, resumeField{Name: name, Value: value})
+		}
+	}
+	sort.Slice(pending.Fields, func(i, j int) bool {
+		if pending.Fields[i].Name != pending.Fields[j].Name {
+			return pending.Fields[i].Name < pending.Fields[j].Name
+		}
+		return pending.Fields[i].Value < pending.Fields[j].Value
+	})
+	return pending
 }
 
 // reauthTarget is where to land after the ceremony. A GET can simply be

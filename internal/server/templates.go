@@ -231,10 +231,14 @@ const pageTemplates = `
     <h1>Confirm it is you</h1>
     <p class="lede">Changing passkeys, email, roles or clients needs a passkey used in the last five minutes.</p>
   </div>
-  <button class="claustra-login" id="passkey" data-begin="/webauthn/login/begin" data-finish="/webauthn/login/finish" data-method="get" data-continue="{{.Continue}}" data-bootstrap=""><span class="claustra-login__label">Use your passkey</span>{{template "login-button-lock"}}</button>
+  <button class="claustra-login" id="passkey" data-begin="/webauthn/login/begin" data-finish="/webauthn/login/finish" data-method="get" data-continue="{{.Continue}}" data-bootstrap="" data-csrf-scope="{{with .Resume}}{{.CSRFScope}}{{end}}"><span class="claustra-login__label">Use your passkey</span>{{template "login-button-lock"}}</button>
   <p class="status" id="status" role="status"></p>
   <p class="faint">You stay signed in - this only proves the passkey is still in your hands, and returns you to what you were doing.</p>
-</div>
+{{with .Resume}}  <form method="post" action="{{.Action}}" id="resume" hidden>
+    <input type="hidden" name="csrf" value="">
+    {{range .Fields}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">
+    {{end}}</form>
+{{end}}</div>
 <script src="/static/passkey.js" defer></script>
 {{template "foot" .}}{{end}}
 
