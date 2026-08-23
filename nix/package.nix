@@ -1,4 +1,4 @@
-{ lib, buildGoModule }:
+{ lib, buildGoModule, bash }:
 buildGoModule {
   pname = "claustra";
   version = "0.1.0";
@@ -9,13 +9,14 @@ buildGoModule {
   ldflags = [ "-s" "-w" ];
   env.CGO_ENABLED = 0;
 
-  # patchShebangs explicitly: the script arrives from the store as its own
-  # path, and its #!/usr/bin/env bash survived into $out otherwise. systemd
-  # units get a PATH built from their own `path` list, which does not carry a
-  # shell, so an unpatched shebang fails with env: bash: No such file.
+  # The shebang is rewritten by hand rather than left to patchShebangs, which
+  # does not reach this file: it is installed from its own store path and the
+  # #!/usr/bin/env bash reached $out untouched. A systemd unit's PATH is built
+  # from its own `path` list and carries no shell, so the unit then dies with
+  # env: bash: No such file or directory.
   postInstall = ''
     install -Dm755 ${../scripts/backup.sh} $out/bin/claustra-backup
-    patchShebangs $out/bin/claustra-backup
+    substituteInPlace $out/bin/claustra-backup --replace-fail '#!/usr/bin/env bash' '#!${bash}/bin/bash'
   '';
 
   doCheck = true;
