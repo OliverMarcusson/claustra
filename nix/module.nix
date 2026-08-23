@@ -91,6 +91,14 @@ in {
       };
     };
 
+    # ProtectSystem=strict makes the whole filesystem read-only for the backup
+    # unit except ReadWritePaths, and systemd fails namespace setup outright if
+    # such a path does not exist. The script's own mkdir never gets to run, so
+    # the directory has to exist before the unit starts: hence tmpfiles rather
+    # than ExecStartPre, which would be inside the same namespace.
+    systemd.tmpfiles.rules = lib.optional cfg.backup.enable
+      "d ${cfg.backup.directory} 0700 claustra claustra -";
+
     systemd.services.claustra-backup = mkIf cfg.backup.enable {
       description = "Encrypted Claustra backup";
       after = [ "claustra.service" ] ++ lib.optional cfg.localPostgres "postgresql.service";
