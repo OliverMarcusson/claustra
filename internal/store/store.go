@@ -110,10 +110,15 @@ type Client struct {
 	PrivacyPolicyURI  string
 	Trusted           bool
 	Enabled           bool
+	AccessPolicy      string
+	AllowedEmails     []string
 	RedirectURIs      []string
 	AllowedScopes     []string
 	PreapprovedScopes []string
 }
+
+// Gated reports whether this client admits only listed addresses.
+func (c Client) Gated() bool { return c.AccessPolicy == AccessAllowlist }
 
 type Challenge struct {
 	Hash          []byte

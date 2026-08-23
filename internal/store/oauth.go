@@ -35,7 +35,7 @@ type AccessToken struct {
 
 func (s *Store) ClientByID(ctx context.Context, id string) (Client, error) {
 	var c Client
-	err := s.Pool.QueryRow(ctx, `SELECT id,name,COALESCE(logo_uri,''),COALESCE(homepage_uri,''),COALESCE(privacy_policy_uri,''),trusted,enabled FROM clients WHERE id=$1`, id).Scan(&c.ID, &c.Name, &c.LogoURI, &c.HomepageURI, &c.PrivacyPolicyURI, &c.Trusted, &c.Enabled)
+	err := s.Pool.QueryRow(ctx, `SELECT id,name,COALESCE(logo_uri,''),COALESCE(homepage_uri,''),COALESCE(privacy_policy_uri,''),trusted,enabled,access_policy FROM clients WHERE id=$1`, id).Scan(&c.ID, &c.Name, &c.LogoURI, &c.HomepageURI, &c.PrivacyPolicyURI, &c.Trusted, &c.Enabled, &c.AccessPolicy)
 	if err != nil {
 		return Client{}, err
 	}
@@ -68,7 +68,14 @@ func (s *Store) ClientByID(ctx context.Context, id string) (Client, error) {
 			c.PreapprovedScopes = append(c.PreapprovedScopes, scope)
 		}
 	}
-	return c, rows.Err()
+	if err := rows.Err(); err != nil {
+		return Client{}, err
+	}
+	c.AllowedEmails, err = s.ClientAllowedEmails(ctx, id)
+	if err != nil {
+		return Client{}, err
+	}
+	return c, nil
 }
 
 func (c Client) AllowsRedirect(redirect string) bool {
@@ -116,7 +123,11 @@ func (s *Store) CreateClient(ctx context.Context, input NewClient) (uuid.UUID, e
 		return uuid.Nil, err
 	}
 	defer tx.Rollback(ctx)
-	_, err = tx.Exec(ctx, `INSERT INTO clients(id,name,logo_uri,homepage_uri,privacy_policy_uri,trusted,created_by) VALUES($1,$2,NULLIF($3,''),NULLIF($4,''),NULLIF($5,''),$6,$7)`, input.ID, input.Name, input.LogoURI, input.HomepageURI, input.PrivacyPolicyURI, input.Trusted, input.CreatedBy)
+	policy, err := NormalizeAccessPolicy(input.AccessPolicy)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO clients(id,name,logo_uri,homepage_uri,privacy_policy_uri,trusted,access_policy,created_by) VALUES($1,$2,NULLIF($3,''),NULLIF($4,''),NULLIF($5,''),$6,$7,$8)`, input.ID, input.Name, input.LogoURI, input.HomepageURI, input.PrivacyPolicyURI, input.Trusted, policy, input.CreatedBy)
 	if err != nil {
 		return uuid.Nil, err
 	}

@@ -73,6 +73,9 @@ func (a *App) authorize(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?continue="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
 		return
 	}
+	if !a.permitClient(w, r, session, client) {
+		return
+	}
 	covered, err := a.Store.ConsentCovers(r.Context(), session.User.ID, client, scopes)
 	if err != nil {
 		http.Error(w, "authorization failed", 500)
@@ -106,6 +109,9 @@ func (a *App) authorizeConsent(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Form.Get("decision") != "allow" {
 		redirectOAuthError(w, r, q.RedirectURI, q.State, "access_denied")
+		return
+	}
+	if !a.permitClient(w, r, session, client) {
 		return
 	}
 	if err := a.Store.GrantConsent(r.Context(), session.User.ID, client.ID, scopes); err != nil {
@@ -186,6 +192,18 @@ func (a *App) token(w http.ResponseWriter, r *http.Request) {
 	user, err := a.Store.UserByID(r.Context(), code.UserID)
 	if err != nil {
 		oauthError(w, 400, "invalid_grant", "account unavailable")
+		return
+	}
+	// Re-check the allowlist at redemption. The code was issued against the
+	// policy as it stood at /authorize, and without this an address removed in
+	// the seconds since would still buy a full-lifetime access token.
+	allowed, err := a.Store.ClientAccessAllowed(r.Context(), clientID, user.ID)
+	if err != nil {
+		oauthError(w, 500, "server_error", "could not issue token")
+		return
+	}
+	if !allowed {
+		oauthError(w, 400, "invalid_grant", "account may not use this client")
 		return
 	}
 	subject, err := a.Store.PairwiseSubject(r.Context(), user.ID, clientID)

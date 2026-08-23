@@ -8,10 +8,16 @@ import (
 )
 
 type ForwardHost struct {
-	Host    string
-	Name    string
-	Enabled bool
+	Host          string
+	Name          string
+	Enabled       bool
+	AccessPolicy  string
+	AllowedEmails []string
 }
+
+// Gated reports whether this host admits only listed addresses.
+func (h ForwardHost) Gated() bool { return h.AccessPolicy == AccessAllowlist }
+
 type ForwardSession struct {
 	Hash, SSOSessionHash []byte
 	UserID               uuid.UUID
@@ -27,11 +33,11 @@ type ForwardTicket struct {
 
 func (s *Store) ForwardHost(ctx context.Context, host string) (ForwardHost, error) {
 	var v ForwardHost
-	err := s.Pool.QueryRow(ctx, `SELECT host,name,enabled FROM forward_hosts WHERE host=$1`, host).Scan(&v.Host, &v.Name, &v.Enabled)
+	err := s.Pool.QueryRow(ctx, `SELECT host,name,enabled,access_policy FROM forward_hosts WHERE host=$1`, host).Scan(&v.Host, &v.Name, &v.Enabled, &v.AccessPolicy)
 	return v, err
 }
 func (s *Store) ListForwardHosts(ctx context.Context) ([]ForwardHost, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT host,name,enabled FROM forward_hosts ORDER BY host`)
+	rows, err := s.Pool.Query(ctx, `SELECT host,name,enabled,access_policy FROM forward_hosts ORDER BY host`)
 	if err != nil {
 		return nil, err
 	}
@@ -39,15 +45,27 @@ func (s *Store) ListForwardHosts(ctx context.Context) ([]ForwardHost, error) {
 	var out []ForwardHost
 	for rows.Next() {
 		var v ForwardHost
-		if err := rows.Scan(&v.Host, &v.Name, &v.Enabled); err != nil {
+		if err := rows.Scan(&v.Host, &v.Name, &v.Enabled, &v.AccessPolicy); err != nil {
 			return nil, err
 		}
 		out = append(out, v)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if out[i].AllowedEmails, err = s.ForwardAllowedEmails(ctx, out[i].Host); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
-func (s *Store) CreateForwardHost(ctx context.Context, host, name string, createdBy uuid.UUID) error {
-	_, err := s.Pool.Exec(ctx, `INSERT INTO forward_hosts(host,name,created_by) VALUES($1,$2,$3)`, host, name, createdBy)
+func (s *Store) CreateForwardHost(ctx context.Context, host, name, policy string, createdBy uuid.UUID) error {
+	policy, err := NormalizeAccessPolicy(policy)
+	if err != nil {
+		return err
+	}
+	_, err = s.Pool.Exec(ctx, `INSERT INTO forward_hosts(host,name,access_policy,created_by) VALUES($1,$2,$3,$4)`, host, name, policy, createdBy)
 	return err
 }
 

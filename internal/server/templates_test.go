@@ -23,7 +23,7 @@ func samplePages() map[string]any {
 		User:        store.User{ID: uuid.New(), Status: "active", DisplayName: &name, Email: &email, EmailVerified: true, CreatedAt: now},
 		Credentials: []store.Credential{{ID: uuid.New(), Name: "MacBook Touch ID", State: "active", CreatedAt: now, LastUsedAt: &used}, {ID: uuid.New(), Name: "YubiKey 5C", State: "active", CreatedAt: now}},
 	}
-	client := store.Client{ID: "euripus", Name: "Euripus", HomepageURI: "https://euripus.marcusson.dev", PrivacyPolicyURI: "https://euripus.marcusson.dev/privacy", Trusted: true, Enabled: true}
+	client := store.Client{ID: "euripus", Name: "Euripus", HomepageURI: "https://euripus.marcusson.dev", PrivacyPolicyURI: "https://euripus.marcusson.dev/privacy", Trusted: true, Enabled: true, AccessPolicy: store.AccessAllowlist, AllowedEmails: []string{"oliver@marcusson.dev"}}
 	return map[string]any{
 		"home_out": map[string]any{"SignedIn": false},
 		"home_in":  map[string]any{"SignedIn": true, "Admin": true, "User": user},
@@ -33,8 +33,8 @@ func samplePages() map[string]any {
 			"Consents": []store.ConsentView{{ClientID: "euripus", ClientName: "Euripus", Scopes: []string{"openid", "profile"}, GrantedAt: now}}},
 		"admin_clients": map[string]any{"Title": "Clients", "SignedIn": true, "Admin": true, "NavAdmin": true, "Issuer": "https://claustra.marcusson.dev",
 			"CSRF": "csrf-token", "NewSecret": "cs_7f3a91b0c4d2e5a68b1f4c7d0e3a6b9c",
-			"Clients":      []store.Client{client, {ID: "mcsn", Name: "mcsn.se", Enabled: false}},
-			"ForwardHosts": []store.ForwardHost{{Host: "grafana.marcusson.dev", Name: "Grafana", Enabled: true}},
+			"Clients":      []store.Client{client, {ID: "mcsn", Name: "mcsn.se", Enabled: false, AccessPolicy: store.AccessOpen}},
+			"ForwardHosts": []store.ForwardHost{{Host: "grafana.marcusson.dev", Name: "Grafana", Enabled: true, AccessPolicy: store.AccessAllowlist, AllowedEmails: []string{"oliver@marcusson.dev"}}},
 			"Admins":       []store.AdminView{{UserID: uuid.New(), DisplayName: "Oliver Marcusson", Email: "oliver@marcusson.dev", GrantedAt: now}}},
 		"consent": map[string]any{"Title": "Authorize", "SignedIn": true, "Client": client, "Scopes": []string{"openid", "profile", "email"},
 			"Fields": map[string]string{"client_id": "euripus", "state": "abc"}, "CSRF": "csrf-token"},
@@ -42,6 +42,7 @@ func samplePages() map[string]any {
 			"Button": "Use passkey", "Begin": "/webauthn/login/begin", "Finish": "/webauthn/login/finish", "Method": "get", "Continue": "/account", "Bootstrap": ""},
 		"recover": map[string]any{"Title": "Recover", "Sent": true},
 		"message": map[string]any{"Title": "Deletion scheduled", "Heading": "Account disabled", "Message": "Your account will be permanently deleted after seven days."},
+		"denied":  map[string]any{"Title": "No access", "SignedIn": true, "Admin": false, "Service": "Pagina", "Email": "someone@example.com"},
 	}
 }
 

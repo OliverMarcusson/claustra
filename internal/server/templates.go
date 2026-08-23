@@ -52,6 +52,22 @@ const pageTemplates = `
 </div>
 {{template "foot" .}}{{end}}
 
+{{define "denied"}}{{template "head" .}}
+<div class="center">
+  <h1>No access to {{.Service}}</h1>
+  <p class="lede">{{.Service}} admits only specific accounts, and this one is not among them.</p>
+  {{if .Email}}
+    <p class="faint">You are signed in as <strong>{{.Email}}</strong>. If you have another account that should have access, sign out and use that one; otherwise ask the administrator to add this address.</p>
+  {{else}}
+    <p class="faint">This account has no verified email address. A service allowlist matches on verified addresses only, so an unverified one never grants access. Add and verify an address on your account, then try again.</p>
+  {{end}}
+  <div class="row-actions">
+    <a class="btn" href="/account">Your account</a>
+    {{if .LogoutCSRF}}<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.LogoutCSRF}}"><button class="btn btn--danger">Sign out</button></form>{{end}}
+  </div>
+</div>
+{{template "foot" .}}{{end}}
+
 {{define "home"}}{{template "head" .}}
 {{if .SignedIn}}
 <section class="section">
@@ -265,13 +281,14 @@ const pageTemplates = `
 <section class="section">
   <div class="section__head"><h2>OIDC clients</h2></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Client ID</th><th>Name</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th>Client ID</th><th>Name</th><th>Status</th><th>Access</th><th></th></tr></thead>
     <tbody>
     {{range .Clients}}
       <tr>
         <td><code>{{.ID}}</code></td>
         <td>{{.Name}} {{if .Trusted}}<span class="badge badge--accent">Trusted</span>{{end}}</td>
         <td>{{if .Enabled}}<span class="badge badge--ok">Enabled</span>{{else}}<span class="badge badge--off">Disabled</span>{{end}}</td>
+        <td>{{if .Gated}}<span class="badge badge--accent">{{len .AllowedEmails}} allowed</span>{{else}}<span class="badge badge--warn">Any account</span>{{end}}</td>
         <td>
           <div class="row-actions">
             <form method="post" action="/admin/clients/rotate"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="client_id" value="{{.ID}}"><button class="btn btn--sm">Rotate secret</button></form>
@@ -280,7 +297,7 @@ const pageTemplates = `
         </td>
       </tr>
     {{else}}
-      <tr><td colspan="4"><span class="faint">No clients registered.</span></td></tr>
+      <tr><td colspan="5"><span class="faint">No clients registered.</span></td></tr>
     {{end}}
     </tbody>
   </table></div>
@@ -298,6 +315,8 @@ const pageTemplates = `
       <label class="field"><span>Logo</span><input name="logo_uri" type="url"></label>
       <label class="field"><span>Privacy policy</span><input name="privacy_policy_uri" type="url"></label>
       <label class="field"><span>Allowed scopes</span><input name="scopes" value="openid profile email"></label>
+      <label class="field"><span>Who may sign in</span><select name="access_policy"><option value="allowlist" selected>Only listed addresses</option><option value="open">Any Claustra account</option></select></label>
+      <label class="field field--wide"><span>Allowed email addresses</span><input name="allowed_emails" placeholder="you@example.com, someone@example.com"><small>Matched against verified addresses only. Leave empty and nobody gets in until you add one.</small></label>
     </div>
     <div class="checks">
       <label class="check"><input type="checkbox" name="trusted" value="yes"> Trusted first-party client</label>
@@ -315,7 +334,7 @@ const pageTemplates = `
     <div class="row">
       {{template "icon-globe"}}
       <div class="row__main">
-        <span class="row__title">{{.Host}}{{if not .Enabled}} <span class="badge badge--off">Disabled</span>{{end}}</span>
+        <span class="row__title">{{.Host}}{{if not .Enabled}} <span class="badge badge--off">Disabled</span>{{end}} {{if .Gated}}<span class="badge badge--accent">{{len .AllowedEmails}} allowed</span>{{else}}<span class="badge badge--warn">Any account</span>{{end}}</span>
         <span class="row__meta">{{.Name}}</span>
       </div>
     </div>
@@ -326,9 +345,86 @@ const pageTemplates = `
     <div class="form-grid">
       <label class="field"><span>Hostname</span><input name="host" required placeholder="service.marcusson.dev"></label>
       <label class="field"><span>Name</span><input name="name" required placeholder="Service"></label>
+      <label class="field"><span>Who may sign in</span><select name="access_policy"><option value="allowlist" selected>Only listed addresses</option><option value="open">Any Claustra account</option></select></label>
+      <label class="field field--wide"><span>Allowed email addresses</span><input name="allowed_emails" placeholder="you@example.com"></label>
     </div>
     <div class="row-actions"><button class="btn">Register host</button></div>
   </form>
+</section>
+
+<section class="section">
+  <div class="section__head"><h2>Service access</h2></div>
+  <p class="faint">Anyone can register a Claustra account, so an account is not by itself permission to use a service. A gated service admits only the addresses listed here, and only where the account has verified that address.</p>
+
+  {{range .Clients}}
+  <div class="row">
+    {{template "icon-app"}}
+    <div class="row__main">
+      <span class="row__title">{{.Name}} <code>{{.ID}}</code></span>
+      <span class="row__meta">
+        {{if .Gated}}
+          {{if .AllowedEmails}}{{range .AllowedEmails}}<span class="badge">{{.}}</span> {{end}}{{else}}<span class="badge badge--off">Nobody listed</span>{{end}}
+        {{else}}<span class="badge badge--warn">Open to any Claustra account</span>{{end}}
+      </span>
+    </div>
+  </div>
+  <form method="post" action="/admin/clients/access" class="row-actions row-actions--spaced">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="client_id" value="{{.ID}}">
+    <input type="hidden" name="action" value="policy"><input type="hidden" name="policy" value="{{if .Gated}}open{{else}}allowlist{{end}}">
+    <button class="btn btn--sm">{{if .Gated}}Open to everyone{{else}}Restrict to a list{{end}}</button>
+  </form>
+  <form method="post" action="/admin/clients/access" class="form-grid">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="client_id" value="{{.ID}}"><input type="hidden" name="action" value="allow">
+    <label class="field"><span>Allow an address</span><input name="email" type="email" required placeholder="you@example.com"></label>
+    <div class="row-actions"><button class="btn btn--sm">Add</button></div>
+  </form>
+  {{if .AllowedEmails}}
+  <div class="row-actions row-actions--spaced">
+    {{$cid := .ID}}
+    {{range .AllowedEmails}}
+    <form method="post" action="/admin/clients/access">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="client_id" value="{{$cid}}"><input type="hidden" name="action" value="deny"><input type="hidden" name="email" value="{{.}}">
+      <button class="btn btn--sm btn--danger">Remove {{.}}</button>
+    </form>
+    {{end}}
+  </div>
+  {{end}}
+  {{else}}<p class="empty">No clients registered.</p>{{end}}
+
+  {{range .ForwardHosts}}
+  <div class="row">
+    {{template "icon-globe"}}
+    <div class="row__main">
+      <span class="row__title">{{.Host}}</span>
+      <span class="row__meta">
+        {{if .Gated}}
+          {{if .AllowedEmails}}{{range .AllowedEmails}}<span class="badge">{{.}}</span> {{end}}{{else}}<span class="badge badge--off">Nobody listed</span>{{end}}
+        {{else}}<span class="badge badge--warn">Open to any Claustra account</span>{{end}}
+      </span>
+    </div>
+  </div>
+  <form method="post" action="/admin/forward-hosts/access" class="row-actions row-actions--spaced">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="host" value="{{.Host}}">
+    <input type="hidden" name="action" value="policy"><input type="hidden" name="policy" value="{{if .Gated}}open{{else}}allowlist{{end}}">
+    <button class="btn btn--sm">{{if .Gated}}Open to everyone{{else}}Restrict to a list{{end}}</button>
+  </form>
+  <form method="post" action="/admin/forward-hosts/access" class="form-grid">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="host" value="{{.Host}}"><input type="hidden" name="action" value="allow">
+    <label class="field"><span>Allow an address</span><input name="email" type="email" required placeholder="you@example.com"></label>
+    <div class="row-actions"><button class="btn btn--sm">Add</button></div>
+  </form>
+  {{if .AllowedEmails}}
+  <div class="row-actions row-actions--spaced">
+    {{$h := .Host}}
+    {{range .AllowedEmails}}
+    <form method="post" action="/admin/forward-hosts/access">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="host" value="{{$h}}"><input type="hidden" name="action" value="deny"><input type="hidden" name="email" value="{{.}}">
+      <button class="btn btn--sm btn--danger">Remove {{.}}</button>
+    </form>
+    {{end}}
+  </div>
+  {{end}}
+  {{end}}
 </section>
 
 <section class="section">

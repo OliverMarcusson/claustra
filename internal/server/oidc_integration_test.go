@@ -21,6 +21,9 @@ import (
 	"github.com/olivermarcusson/claustra/internal/store"
 )
 
+// This covers the token exchange and UserInfo, not access control, so its
+// client is explicitly open. Clients default to admitting nobody, and the
+// allowlist is exercised in access_integration_test.go instead.
 func TestAuthorizationCodeTokenExchange(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -48,7 +51,7 @@ func TestAuthorizationCodeTokenExchange(t *testing.T) {
 	clientID := "oidc-" + uuid.NewString()[:8]
 	clientSecret := "client-secret-" + uuid.NewString()
 	redirectURI := "https://client.example/callback"
-	if _, err = st.CreateClient(ctx, store.NewClient{Client: store.Client{ID: clientID, Name: "OIDC Test", RedirectURIs: []string{redirectURI}, AllowedScopes: []string{"openid", "profile"}}, SecretHash: store.HashSecret(clientSecret), CreatedBy: user.ID}); err != nil {
+	if _, err = st.CreateClient(ctx, store.NewClient{Client: store.Client{ID: clientID, Name: "OIDC Test", AccessPolicy: store.AccessOpen, RedirectURIs: []string{redirectURI}, AllowedScopes: []string{"openid", "profile"}}, SecretHash: store.HashSecret(clientSecret), CreatedBy: user.ID}); err != nil {
 		t.Fatal(err)
 	}
 	verifier := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"

@@ -37,27 +37,57 @@ func (a *App) forwardVerify(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(a.forwardCookieName()); err == nil {
 		session, err := a.Store.ForwardSessionByRaw(r.Context(), cookie.Value, host)
 		if err == nil {
-			subject, _ := a.Store.ForwardSubject(r.Context(), session.UserID, host)
-			w.Header().Set("X-Claustra-User", subject)
-			w.Header().Set("X-Claustra-Sub", subject)
-			w.WriteHeader(200)
+			// The allowlist is consulted per request, not once when the
+			// cookie was minted. Removing an address has to take effect
+			// now, not whenever the forward session happens to expire.
+			allowed, err := a.Store.ForwardAccessAllowed(r.Context(), host, session.UserID)
+			if err != nil {
+				http.Error(w, "could not verify access", http.StatusInternalServerError)
+				return
+			}
+			if allowed {
+				subject, _ := a.Store.ForwardSubject(r.Context(), session.UserID, host)
+				w.Header().Set("X-Claustra-User", subject)
+				w.Header().Set("X-Claustra-Sub", subject)
+				w.WriteHeader(200)
+				return
+			}
+			// Signed in and rejected is not the same as not signed in.
+			// Send browsers to the authorize endpoint, which renders the
+			// denial page on Claustra's own origin; anything else gets a
+			// plain 403 rather than a sign-in prompt it cannot satisfy.
+			if isBrowserNavigation(r) {
+				a.redirectToForwardAuthorize(w, host, r)
+				return
+			}
+			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 	}
-	method := r.Header.Get("X-Forwarded-Method")
-	if method == "" {
-		method = "GET"
-	}
-	uri := safeReturnPath(r.Header.Get("X-Forwarded-Uri"))
-	accept := r.Header.Get("Accept")
-	if (method == "GET" || method == "HEAD") && strings.Contains(accept, "text/html") {
-		target := a.Config.Issuer + "/forward-auth/authorize?host=" + url.QueryEscape(host) + "&rd=" + url.QueryEscape(uri)
-		w.Header().Set("Location", target)
-		w.WriteHeader(http.StatusFound)
+	if isBrowserNavigation(r) {
+		a.redirectToForwardAuthorize(w, host, r)
 		return
 	}
 	w.Header().Set("WWW-Authenticate", `Bearer realm="claustra"`)
 	http.Error(w, "authentication required", http.StatusUnauthorized)
+}
+
+// isBrowserNavigation reports whether this is a top-level HTML navigation, the
+// only kind of request that can usefully be sent somewhere to be resolved. API,
+// XHR and non-idempotent requests get a status code instead.
+func isBrowserNavigation(r *http.Request) bool {
+	method := r.Header.Get("X-Forwarded-Method")
+	if method == "" {
+		method = "GET"
+	}
+	return (method == "GET" || method == "HEAD") && strings.Contains(r.Header.Get("Accept"), "text/html")
+}
+
+func (a *App) redirectToForwardAuthorize(w http.ResponseWriter, host string, r *http.Request) {
+	uri := safeReturnPath(r.Header.Get("X-Forwarded-Uri"))
+	target := a.Config.Issuer + "/forward-auth/authorize?host=" + url.QueryEscape(host) + "&rd=" + url.QueryEscape(uri)
+	w.Header().Set("Location", target)
+	w.WriteHeader(http.StatusFound)
 }
 
 func (a *App) forwardAuthorize(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +101,15 @@ func (a *App) forwardAuthorize(w http.ResponseWriter, r *http.Request) {
 	session, err := a.currentSession(r)
 	if err != nil {
 		http.Redirect(w, r, "/login?continue="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
+		return
+	}
+	allowed, err := a.Store.ForwardAccessAllowed(r.Context(), host, session.User.ID)
+	if err != nil {
+		http.Error(w, "could not authorize", 500)
+		return
+	}
+	if !allowed {
+		a.denyService(w, r, session, registered.Name)
 		return
 	}
 	raw, err := security.RandomToken(32)

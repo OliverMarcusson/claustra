@@ -1,6 +1,6 @@
 # Claustra
 
-Claustra is a passkey-first OpenID Connect provider for personal services. It supports public passkey registration, optional consented profile claims, verified-email recovery, administrator-managed clients, pairwise subject identifiers, and a Caddy forward-auth adapter.
+Claustra is a passkey-first OpenID Connect provider for personal services. It supports public passkey registration, optional consented profile claims, verified-email recovery, administrator-managed clients, per-service email allowlists, pairwise subject identifiers, and a Caddy forward-auth adapter.
 
 The implementation follows the behavior in [claustra-design.md](./claustra-design.md). The interface is a dark, purple-accented set of server-rendered pages: sign-in and consent, an account page for profile, passkeys, sessions, and connected apps, and an administrator page for clients, forward-auth hosts, and roles. All styling is served from the origin, so the strict Content-Security-Policy needs no exceptions.
 
@@ -61,9 +61,41 @@ Important optional variables include `CLAUSTRA_ISSUER`, `CLAUSTRA_RP_ID`, `CLAUS
 
 For signing-key rotation, generate a new key, retain the former key in `CLAUSTRA_PREVIOUS_SIGNING_KEY_FILES`, switch `CLAUSTRA_SIGNING_KEY_FILE`, and restart. Keep former keys in JWKS for longer than the five-minute ID-token lifetime.
 
+## Service access
+
+Registration is public, so holding a Claustra account is not by itself permission
+to use a service. Every OIDC client and every forward-auth host carries an access
+policy:
+
+| Policy | Who gets in |
+| --- | --- |
+| `allowlist` | only accounts holding a **verified** email address listed against that service |
+| `open` | any active Claustra account |
+
+New clients and hosts default to `allowlist` with an empty list, so a service that
+is registered and then forgotten admits nobody. A policy left unset by a caller
+resolves to `allowlist` for the same reason. Entries that predate this feature
+were migrated to `open` to preserve the behaviour they were deployed with;
+tighten them from `/admin/clients`.
+
+Only verified addresses count. An unverified address is self-asserted, and
+honouring it would let anyone reach a gated service by claiming an address they
+do not control. An account with no verified address can never satisfy an
+allowlist.
+
+The check runs at `/authorize`, again at the consent POST, and once more when the
+authorization code is redeemed, so an address removed mid-flight cannot buy a
+token. Forward-auth re-checks on every proxied request rather than trusting the
+cookie it minted, and removing an address revokes the access tokens and
+forward-auth sessions it was holding.
+
+A signed-in user who is not on the list gets a Claustra page naming the service
+and the address that was checked, rather than a bounce back to the relying party
+— which would only redirect them here again.
+
 ## Registering an OIDC client
 
-Sign in as an administrator and open `/admin/clients`. Claustra displays a new client secret exactly once. A client must:
+Sign in as an administrator and open `/admin/clients`. Choose who may sign in — an allowlist of addresses, or any Claustra account — and Claustra displays a new client secret exactly once. A client must:
 
 1. discover Claustra from `/.well-known/openid-configuration`;
 2. create `state`, `nonce`, and a PKCE verifier/challenge;
