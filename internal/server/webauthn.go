@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 	"github.com/olivermarcusson/claustra/internal/security"
@@ -96,6 +98,7 @@ func (a *App) registrationFinish(w http.ResponseWriter, r *http.Request) {
 	user := store.WebAuthnUser{User: store.User{ID: *challenge.UserID, WebAuthnHandle: challenge.UserHandle, Status: "active", CreatedAt: time.Now().UTC()}}
 	credential, err := a.WebAuthn.FinishRegistration(user, sessionData, r)
 	if err != nil {
+		a.Logger.Warn("passkey registration rejected", "error", err, "detail", webauthnFailure(err))
 		a.Store.Audit(r.Context(), "registration.failed", nil, nil, nil, clientIP(r), r.UserAgent(), map[string]any{"reason": "webauthn_validation"})
 		writeJSON(w, 400, map[string]string{"error": "passkey registration was not valid"})
 		return
@@ -155,15 +158,26 @@ func (a *App) loginFinish(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "invalid stored challenge"})
 		return
 	}
+	lookupFailed := false
 	userValue, credential, err := a.WebAuthn.FinishPasskeyLogin(func(rawID, userHandle []byte) (webauthn.User, error) {
 		user, err := a.Store.DiscoverableUser(r.Context(), rawID, userHandle)
 		if err != nil {
+			lookupFailed = true
+			a.Logger.Warn("no account for asserted passkey", "error", err, "credential_id_bytes", len(rawID), "user_handle_bytes", len(userHandle))
 			return nil, err
 		}
 		return user, nil
 	}, sessionData, r)
 	if err != nil {
-		a.Store.Audit(r.Context(), "login.failed", nil, nil, nil, clientIP(r), r.UserAgent(), map[string]any{"reason": "webauthn_validation"})
+		reason := "webauthn_validation"
+		if lookupFailed {
+			reason = "unknown_credential"
+		}
+		// The error is the only thing that says which of a dozen checks
+		// rejected the assertion. Discarding it left the failure undebuggable
+		// from the outside; it names protocol state, never key material.
+		a.Logger.Warn("passkey assertion rejected", "reason", reason, "error", err, "detail", webauthnFailure(err))
+		a.Store.Audit(r.Context(), "login.failed", nil, nil, nil, clientIP(r), r.UserAgent(), map[string]any{"reason": reason})
 		writeJSON(w, 400, map[string]string{"error": "passkey assertion was not valid"})
 		return
 	}
@@ -200,4 +214,15 @@ func (a *App) newSession(r *http.Request, userID uuid.UUID, credentialID *uuid.U
 		return "", err
 	}
 	return raw, nil
+}
+
+// webauthnFailure unwraps the library's error into the part that identifies
+// which check failed. Details and DevInfo describe protocol state - flags,
+// origins, counters - and never carry key material or the assertion itself.
+func webauthnFailure(err error) string {
+	var protocolError *protocol.Error
+	if errors.As(err, &protocolError) {
+		return strings.TrimSpace(protocolError.Type + ": " + protocolError.Details + " " + protocolError.DevInfo)
+	}
+	return err.Error()
 }
