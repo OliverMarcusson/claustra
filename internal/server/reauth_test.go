@@ -2,11 +2,8 @@ package server
 
 import (
 	"bytes"
-	"html"
 	"html/template"
 	"net/http/httptest"
-	"net/url"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -36,21 +33,20 @@ func TestReauthPageOffersAWayThrough(t *testing.T) {
 			t.Errorf("re-auth page is missing %q", want)
 		}
 	}
-	// html/template percent-escapes the query value, so assert on what the
-	// link actually resolves to rather than on its spelling.
-	match := regexp.MustCompile(`href="(/login\?continue=[^"]*)"`).FindStringSubmatch(page)
-	if match == nil {
-		t.Fatal("re-auth page offers no link back to the passkey ceremony")
+	// The ceremony runs on this page rather than sending the reader to yet
+	// another one to press a second button.
+	for _, want := range []string{
+		`id="passkey"`,
+		`data-begin="/webauthn/login/begin"`,
+		`data-continue="/admin/clients"`,
+		`src="/static/passkey.js"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("re-auth page cannot run the ceremony itself: missing %q", want)
+		}
 	}
-	link, err := url.Parse(html.UnescapeString(match[1]))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := link.Query().Get("continue"); got != "/admin/clients" {
-		t.Errorf("ceremony returns to %q, not the page that was asked for", got)
-	}
-	if got := safeContinuation(link.Query().Get("continue")); got != "/admin/clients" {
-		t.Errorf("the server would redirect to %q", got)
+	if strings.Contains(page, `href="/login`) {
+		t.Error("re-auth still bounces through the sign-in page")
 	}
 	if strings.Contains(page, "Sign out and sign in again") {
 		t.Error("page still tells the reader to sign out first")
