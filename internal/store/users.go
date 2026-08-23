@@ -121,6 +121,18 @@ func (s *Store) UserByID(ctx context.Context, id uuid.UUID) (WebAuthnUser, error
 func (s *Store) UserByHandle(ctx context.Context, handle []byte) (WebAuthnUser, error) {
 	return s.loadWebAuthnUser(ctx, "u.webauthn_handle", handle)
 }
+
+// CredentialKnown reports whether this credential exists at all, ignoring which
+// account it belongs to and what state it is in. It separates a passkey Claustra
+// never stored - one left behind by a registration that failed after the
+// browser had already created it - from a credential it holds but could not
+// match to the asserted user handle.
+func (s *Store) CredentialKnown(ctx context.Context, credentialID []byte) bool {
+	var exists bool
+	_ = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM credentials WHERE credential_id=$1)`, credentialID).Scan(&exists)
+	return exists
+}
+
 func (s *Store) DiscoverableUser(ctx context.Context, credentialID, userHandle []byte) (WebAuthnUser, error) {
 	var userID uuid.UUID
 	err := s.Pool.QueryRow(ctx, `SELECT u.id FROM users u JOIN credentials c ON c.user_id=u.id WHERE c.credential_id=$1 AND u.webauthn_handle=$2 AND c.state='active' AND u.status='active'`, credentialID, userHandle).Scan(&userID)

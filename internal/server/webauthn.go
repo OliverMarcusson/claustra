@@ -163,7 +163,13 @@ func (a *App) loginFinish(w http.ResponseWriter, r *http.Request) {
 		user, err := a.Store.DiscoverableUser(r.Context(), rawID, userHandle)
 		if err != nil {
 			lookupFailed = true
-			a.Logger.Warn("no account for asserted passkey", "error", err, "credential_id_bytes", len(rawID), "user_handle_bytes", len(userHandle))
+			// Whether the credential exists at all decides who owns the bug:
+			// unknown means the browser holds a passkey Claustra never stored,
+			// known means Claustra has it and the asserted user handle did not
+			// match the account it belongs to.
+			a.Logger.Warn("no account for asserted passkey", "error", err,
+				"credential_known", a.Store.CredentialKnown(r.Context(), rawID),
+				"credential_id_bytes", len(rawID), "user_handle_bytes", len(userHandle))
 			return nil, err
 		}
 		return user, nil
@@ -178,7 +184,16 @@ func (a *App) loginFinish(w http.ResponseWriter, r *http.Request) {
 		// from the outside; it names protocol state, never key material.
 		a.Logger.Warn("passkey assertion rejected", "reason", reason, "error", err, "detail", webauthnFailure(err))
 		a.Store.Audit(r.Context(), "login.failed", nil, nil, nil, clientIP(r), r.UserAgent(), map[string]any{"reason": reason})
-		writeJSON(w, 400, map[string]string{"error": "passkey assertion was not valid"})
+		// An unrecognised passkey is not a failed assertion, and saying so sends
+		// people hunting for a broken key instead of the one that works. A
+		// registration that fails after the browser has created the credential
+		// leaves exactly this behind: a passkey the authenticator offers and
+		// Claustra has never seen.
+		message := "passkey assertion was not valid"
+		if lookupFailed {
+			message = "that passkey is not registered here - pick another, or create an account"
+		}
+		writeJSON(w, 400, map[string]string{"error": message})
 		return
 	}
 	user, ok := userValue.(store.WebAuthnUser)
