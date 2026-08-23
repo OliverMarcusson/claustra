@@ -1,0 +1,7 @@
+.git
+.env
+result
+coverage.out
+*.pem
+*.key
+claustra-design.md

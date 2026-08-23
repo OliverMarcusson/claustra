@@ -1,0 +1,8 @@
+/claustra
+/result
+/.env
+/.direnv
+/coverage.out
+*.pem
+*.key
+
