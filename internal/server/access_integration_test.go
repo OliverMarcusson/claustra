@@ -239,3 +239,93 @@ func TestForwardAuthorizeEnforcesTheAllowlist(t *testing.T) {
 		t.Fatalf("no ticket issued: %q", w.Header().Get("Location"))
 	}
 }
+
+// authorizeWith issues an authorization request carrying extra parameters.
+func (f accessFixture) authorizeWith(clientID string, extra url.Values) *httptest.ResponseRecorder {
+	q := url.Values{
+		"client_id": {clientID}, "redirect_uri": {"https://client.example/callback"},
+		"response_type": {"code"}, "scope": {"openid"}, "state": {"state-value"}, "nonce": {"nonce-value"},
+		"code_challenge":        {"E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"},
+		"code_challenge_method": {"S256"},
+	}
+	for k, v := range extra {
+		q[k] = v
+	}
+	r := httptest.NewRequest(http.MethodGet, "https://claustra.example/authorize?"+q.Encode(), nil)
+	r.AddCookie(&http.Cookie{Name: f.app.sessionCookieName(), Value: f.session})
+	w := httptest.NewRecorder()
+	f.app.authorize(w, r)
+	return w
+}
+
+// A service that uses passkeys to confirm a destructive action, rather than
+// merely to log someone in, needs the provider to re-run the ceremony on
+// demand. Without prompt/max_age, Claustra could replace a login but not a
+// confirmation.
+func TestAuthorizeStepUp(t *testing.T) {
+	f := newAccessFixture(t)
+	id := f.newClient(t, store.AccessOpen)
+
+	t.Run("a live session alone satisfies an ordinary request", func(t *testing.T) {
+		if w := f.authorizeWith(id, nil); w.Code != http.StatusFound {
+			t.Fatalf("status %d, want 302", w.Code)
+		}
+	})
+
+	t.Run("prompt=login re-runs the ceremony", func(t *testing.T) {
+		w := f.authorizeWith(id, url.Values{"prompt": {"login"}})
+		if w.Code != http.StatusOK {
+			t.Fatalf("status %d, want the ceremony page", w.Code)
+		}
+		body := w.Body.String()
+		if !strings.Contains(body, `data-begin="/webauthn/login/begin"`) {
+			t.Error("the step-up page does not run the passkey ceremony")
+		}
+		// Carrying prompt=login into the continuation would demand the
+		// ceremony again the instant it succeeded.
+		if strings.Contains(body, "prompt=login") {
+			t.Error("the continuation still carries prompt=login, which cannot terminate")
+		}
+		if !strings.Contains(body, `data-continue="/authorize?`) {
+			t.Errorf("the ceremony does not return to the authorization request:\n%s", body)
+		}
+	})
+
+	t.Run("max_age=0 re-runs the ceremony", func(t *testing.T) {
+		if w := f.authorizeWith(id, url.Values{"max_age": {"0"}}); w.Code != http.StatusOK {
+			t.Fatalf("status %d, want the ceremony page", w.Code)
+		}
+	})
+
+	// The session in the fixture was authenticated moments ago, so a generous
+	// max_age must not trigger a pointless ceremony.
+	t.Run("a satisfied max_age passes straight through", func(t *testing.T) {
+		if w := f.authorizeWith(id, url.Values{"max_age": {"3600"}}); w.Code != http.StatusFound {
+			t.Fatalf("status %d, want 302", w.Code)
+		}
+	})
+
+	t.Run("prompt=none never shows a page", func(t *testing.T) {
+		w := f.authorizeWith(id, url.Values{"prompt": {"none"}, "max_age": {"0"}})
+		if w.Code != http.StatusFound {
+			t.Fatalf("status %d, want a redirect", w.Code)
+		}
+		if !strings.Contains(w.Header().Get("Location"), "error=login_required") {
+			t.Fatalf("want login_required, got %q", w.Header().Get("Location"))
+		}
+	})
+
+	t.Run("a nonsense prompt is rejected", func(t *testing.T) {
+		w := f.authorizeWith(id, url.Values{"prompt": {"select_account"}})
+		if !strings.Contains(w.Header().Get("Location"), "error=invalid_request") {
+			t.Fatalf("unsupported prompt accepted: %d %q", w.Code, w.Header().Get("Location"))
+		}
+	})
+
+	t.Run("a negative max_age is rejected", func(t *testing.T) {
+		w := f.authorizeWith(id, url.Values{"max_age": {"-1"}})
+		if !strings.Contains(w.Header().Get("Location"), "error=invalid_request") {
+			t.Fatalf("negative max_age accepted: %d %q", w.Code, w.Header().Get("Location"))
+		}
+	})
+}

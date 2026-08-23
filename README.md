@@ -15,6 +15,7 @@ The implementation follows the behavior in [claustra-design.md](./claustra-desig
 - opaque fifteen-minute access tokens for UserInfo and avatars
 - discovery, authorization-server metadata, UserInfo, JWKS, and revocation
 - exact HTTPS redirect-URI matching
+- `prompt` (`none`, `login`, `consent`) and `max_age` for step-up authentication
 
 Implicit flow, refresh tokens, browser-only/native clients, dynamic client registration, device authorization, and general API delegation are deliberately absent.
 
@@ -92,6 +93,24 @@ forward-auth sessions it was holding.
 A signed-in user who is not on the list gets a Claustra page naming the service
 and the address that was checked, rather than a bounce back to the relying party
 — which would only redirect them here again.
+
+## Step-up authentication
+
+A service that uses a passkey to *confirm an action* — approving a publish,
+deleting a record — needs more than a login. Send `prompt=login`, or `max_age=0`,
+and Claustra re-runs the passkey ceremony before issuing a code. `max_age=N`
+re-runs it only if the session is older than N seconds.
+
+Bind the confirmation to the thing being confirmed with `nonce`: derive it from
+the action and the exact revision, keep the mapping server-side, and check the
+`nonce` claim in the returned ID token. The token also carries `auth_time`, and
+a relying party confirming a destructive action should check that claim rather
+than assume the prompt was honoured — that is the guarantee, not the request
+parameter.
+
+`prompt=none` never renders a page: it returns `login_required` or
+`consent_required` to the redirect URI instead. It cannot be combined with
+another prompt value.
 
 ## Registering an OIDC client
 

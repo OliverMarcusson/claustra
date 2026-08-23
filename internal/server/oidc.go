@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,10 +15,69 @@ import (
 	"github.com/olivermarcusson/claustra/internal/store"
 )
 
-type authorizationRequest struct{ ClientID, RedirectURI, Scope, State, Nonce, CodeChallenge, CodeChallengeMethod string }
+type authorizationRequest struct {
+	ClientID, RedirectURI, Scope, State, Nonce, CodeChallenge, CodeChallengeMethod string
+	// Prompt and MaxAge drive step-up authentication. They are deliberately
+	// absent from fields(): those values round-trip through the consent form,
+	// and a prompt=login that survived the round trip would demand the
+	// ceremony again on the way back from the consent the user just gave.
+	Prompt string
+	MaxAge string
+}
 
 func parseAuthorizationRequest(values url.Values) authorizationRequest {
-	return authorizationRequest{ClientID: values.Get("client_id"), RedirectURI: values.Get("redirect_uri"), Scope: values.Get("scope"), State: values.Get("state"), Nonce: values.Get("nonce"), CodeChallenge: values.Get("code_challenge"), CodeChallengeMethod: values.Get("code_challenge_method")}
+	return authorizationRequest{ClientID: values.Get("client_id"), RedirectURI: values.Get("redirect_uri"), Scope: values.Get("scope"), State: values.Get("state"), Nonce: values.Get("nonce"), CodeChallenge: values.Get("code_challenge"), CodeChallengeMethod: values.Get("code_challenge_method"), Prompt: values.Get("prompt"), MaxAge: values.Get("max_age")}
+}
+
+// maxAgeSeconds reports the freshness the client asked for. The second result
+// is false when no max_age was sent, which is not the same as max_age=0: zero
+// means "authenticate now", absent means "any live session will do".
+func (q authorizationRequest) maxAgeSeconds() (int, bool, bool) {
+	if q.MaxAge == "" {
+		return 0, false, true
+	}
+	seconds, err := strconv.Atoi(q.MaxAge)
+	if err != nil || seconds < 0 {
+		return 0, false, false
+	}
+	return seconds, true, true
+}
+
+// promptValues splits the space-delimited prompt parameter.
+func (q authorizationRequest) promptValues() []string { return strings.Fields(q.Prompt) }
+
+func (q authorizationRequest) hasPrompt(value string) bool {
+	for _, v := range q.promptValues() {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}
+
+// staleAuth reports whether the session is older than this request will accept.
+//
+// max_age=0 means "authenticate now" and can never be satisfied by an existing
+// session, so it always demands the ceremony; stepUp drops it from the
+// continuation to keep that one-shot rather than a loop. Larger values compare
+// in whole seconds, so the ceremony that just ran satisfies them on the way
+// back without any special handling.
+func (q authorizationRequest) staleAuth(authTime time.Time) bool {
+	seconds, present, _ := q.maxAgeSeconds()
+	if !present {
+		return false
+	}
+	if seconds == 0 {
+		return true
+	}
+	return int(time.Since(authTime).Seconds()) > seconds
+}
+
+// oneShotStepUp reports whether a parameter forces the ceremony every time it
+// is seen, and so must not survive into the continuation.
+func (q authorizationRequest) oneShotMaxAge() bool {
+	seconds, present, _ := q.maxAgeSeconds()
+	return present && seconds == 0
 }
 func (q authorizationRequest) fields() map[string]string {
 	return map[string]string{"client_id": q.ClientID, "redirect_uri": q.RedirectURI, "scope": q.Scope, "state": q.State, "nonce": q.Nonce, "code_challenge": q.CodeChallenge, "code_challenge_method": q.CodeChallengeMethod, "response_type": "code"}
@@ -54,6 +114,21 @@ func (a *App) validateAuthorization(r *http.Request, q authorizationRequest) (st
 	if len(q.CodeChallenge) < 43 || len(q.CodeChallenge) > 128 {
 		return client, nil, "invalid_request"
 	}
+	if _, _, ok := q.maxAgeSeconds(); !ok {
+		return client, nil, "invalid_request"
+	}
+	for _, value := range q.promptValues() {
+		switch value {
+		case "none", "login", "consent":
+		default:
+			return client, nil, "invalid_request"
+		}
+	}
+	// "none" means never show the user anything, so pairing it with a value
+	// whose whole job is to show the user something is a contradiction.
+	if q.hasPrompt("none") && len(q.promptValues()) > 1 {
+		return client, nil, "invalid_request"
+	}
 	return client, scopes, ""
 }
 
@@ -70,7 +145,19 @@ func (a *App) authorize(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := a.currentSession(r)
 	if err != nil {
+		if q.hasPrompt("none") {
+			redirectOAuthError(w, r, q.RedirectURI, q.State, "login_required")
+			return
+		}
 		http.Redirect(w, r, "/login?continue="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
+		return
+	}
+	if q.hasPrompt("login") || q.staleAuth(session.Session.AuthTime) {
+		if q.hasPrompt("none") {
+			redirectOAuthError(w, r, q.RedirectURI, q.State, "login_required")
+			return
+		}
+		a.stepUp(w, r, session, q)
 		return
 	}
 	if !a.permitClient(w, r, session, client) {
@@ -79,6 +166,13 @@ func (a *App) authorize(w http.ResponseWriter, r *http.Request) {
 	covered, err := a.Store.ConsentCovers(r.Context(), session.User.ID, client, scopes)
 	if err != nil {
 		http.Error(w, "authorization failed", 500)
+		return
+	}
+	if q.hasPrompt("consent") {
+		covered = false
+	}
+	if !covered && q.hasPrompt("none") {
+		redirectOAuthError(w, r, q.RedirectURI, q.State, "consent_required")
 		return
 	}
 	if !covered {
@@ -305,7 +399,7 @@ func (a *App) revoke(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) discovery(w http.ResponseWriter, r *http.Request) {
 	issuer := a.Config.Issuer
-	writeJSON(w, 200, map[string]any{"issuer": issuer, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token", "userinfo_endpoint": issuer + "/userinfo", "jwks_uri": issuer + "/jwks.json", "revocation_endpoint": issuer + "/revoke", "response_types_supported": []string{"code"}, "response_modes_supported": []string{"query"}, "subject_types_supported": []string{"pairwise"}, "id_token_signing_alg_values_supported": []string{"RS256"}, "scopes_supported": []string{"openid", "profile", "email"}, "claims_supported": []string{"sub", "name", "picture", "email", "email_verified", "iss", "aud", "exp", "iat", "auth_time", "nonce"}, "grant_types_supported": []string{"authorization_code"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"client_secret_basic"}})
+	writeJSON(w, 200, map[string]any{"issuer": issuer, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token", "userinfo_endpoint": issuer + "/userinfo", "jwks_uri": issuer + "/jwks.json", "revocation_endpoint": issuer + "/revoke", "response_types_supported": []string{"code"}, "response_modes_supported": []string{"query"}, "subject_types_supported": []string{"pairwise"}, "id_token_signing_alg_values_supported": []string{"RS256"}, "scopes_supported": []string{"openid", "profile", "email"}, "claims_supported": []string{"sub", "name", "picture", "email", "email_verified", "iss", "aud", "exp", "iat", "auth_time", "nonce"}, "grant_types_supported": []string{"authorization_code"}, "prompt_values_supported": []string{"none", "login", "consent"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"client_secret_basic"}})
 }
 func (a *App) oauthMetadata(w http.ResponseWriter, r *http.Request) { a.discovery(w, r) }
 
