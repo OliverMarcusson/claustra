@@ -102,7 +102,7 @@ in {
     systemd.services.claustra-backup = mkIf cfg.backup.enable {
       description = "Encrypted Claustra backup";
       after = [ "claustra.service" ] ++ lib.optional cfg.localPostgres "postgresql.service";
-      path = [ pkgs.postgresql pkgs.age pkgs.gnutar pkgs.coreutils pkgs.findutils ];
+      path = [ pkgs.bash pkgs.postgresql pkgs.age pkgs.gnutar pkgs.coreutils pkgs.findutils ];
       environment = {
         CLAUSTRA_BACKUP_DIR = cfg.backup.directory;
         CLAUSTRA_BACKUP_AGE_RECIPIENT = cfg.backup.ageRecipient;

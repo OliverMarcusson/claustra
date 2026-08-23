@@ -9,8 +9,13 @@ buildGoModule {
   ldflags = [ "-s" "-w" ];
   env.CGO_ENABLED = 0;
 
+  # patchShebangs explicitly: the script arrives from the store as its own
+  # path, and its #!/usr/bin/env bash survived into $out otherwise. systemd
+  # units get a PATH built from their own `path` list, which does not carry a
+  # shell, so an unpatched shebang fails with env: bash: No such file.
   postInstall = ''
     install -Dm755 ${../scripts/backup.sh} $out/bin/claustra-backup
+    patchShebangs $out/bin/claustra-backup
   '';
 
   doCheck = true;
