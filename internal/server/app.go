@@ -282,7 +282,11 @@ func (a *App) health(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) home(w http.ResponseWriter, r *http.Request) {
 	s, err := a.currentSession(r)
-	a.render(w, http.StatusOK, "home", map[string]any{"SignedIn": err == nil, "User": s.User, "Admin": s.Admin})
+	data := map[string]any{"SignedIn": err == nil, "User": s.User, "Admin": s.Admin}
+	if err == nil {
+		data["LogoutCSRF"] = security.CSRF(s.RawToken, "account")
+	}
+	a.render(w, http.StatusOK, "home", data)
 }
 
 func relativeRequestURI(r *http.Request) string {

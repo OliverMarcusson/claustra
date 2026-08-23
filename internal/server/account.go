@@ -32,7 +32,7 @@ func (a *App) account(w http.ResponseWriter, r *http.Request) {
 		sessionViews = append(sessionViews, map[string]any{"Hash": base64.RawURLEncoding.EncodeToString(v.Hash), "Current": string(v.Hash) == string(session.Session.Hash), "LastSeen": v.LastSeenAt, "IP": v.IP, "UserAgent": v.UserAgent})
 	}
 	consents, _ := a.Store.ListConsents(r.Context(), session.User.ID)
-	a.render(w, 200, "account", map[string]any{"Title": "Account", "SignedIn": true, "NavAccount": true, "HasAvatar": a.Store.HasAvatar(r.Context(), session.User.ID), "User": session.User, "Admin": session.Admin, "CSRF": security.CSRF(session.RawToken, "account"), "PendingRecovery": pending, "RecoveryID": recoveryID, "RecoveryDue": recoveryDue, "Sessions": sessionViews, "Consents": consents})
+	a.render(w, 200, "account", map[string]any{"Title": "Account", "SignedIn": true, "NavAccount": true, "LogoutCSRF": security.CSRF(session.RawToken, "account"), "HasAvatar": a.Store.HasAvatar(r.Context(), session.User.ID), "User": session.User, "Admin": session.Admin, "CSRF": security.CSRF(session.RawToken, "account"), "PendingRecovery": pending, "RecoveryID": recoveryID, "RecoveryDue": recoveryDue, "Sessions": sessionViews, "Consents": consents})
 }
 
 func (a *App) logout(w http.ResponseWriter, r *http.Request) {
@@ -66,12 +66,36 @@ func (a *App) logoutAll(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// ReauthWindow is how recently a passkey must have been used before Claustra
+// will change passkeys, emails, roles, clients or the account itself.
+const ReauthWindow = 5 * time.Minute
+
 func (a *App) requireRecent(w http.ResponseWriter, r *http.Request, session sessionContext) bool {
-	if time.Since(session.Session.AuthTime) > 5*time.Minute {
-		http.Error(w, "Fresh passkey authentication required. Sign out and sign in again.", http.StatusForbidden)
-		return false
+	if time.Since(session.Session.AuthTime) <= ReauthWindow {
+		return true
 	}
-	return true
+	// Signing in again is the whole remedy, so the page says so and links
+	// straight at it. Telling someone to sign out and back in was both a
+	// dead end - the response carried no navigation at all - and wrong: the
+	// ceremony alone refreshes auth_time, no sign-out required.
+	a.render(w, http.StatusForbidden, "reauth", map[string]any{
+		"Title": "Confirm it is you", "SignedIn": true, "Admin": session.Admin,
+		"LogoutCSRF": security.CSRF(session.RawToken, "account"),
+		"Continue":   reauthTarget(r),
+	})
+	return false
+}
+
+// reauthTarget is where to land after the ceremony. A GET can simply be
+// repeated; a POST cannot, so it falls back to the page the form was on.
+func reauthTarget(r *http.Request) string {
+	if r.Method == http.MethodGet {
+		return relativeRequestURI(r)
+	}
+	if referer, err := url.Parse(r.Referer()); err == nil && referer.Path != "" && referer.Host == r.Host {
+		return safeReturnPath(referer.RequestURI())
+	}
+	return "/account"
 }
 
 func (a *App) profileUpdate(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +167,7 @@ func (a *App) profileUpdate(w http.ResponseWriter, r *http.Request) {
 			if err = a.Mailer.Send(r.Context(), email, "Verify your Claustra email", "Open this one-time link within one hour:\n\n"+link+"\n\nIf you did not request this, ignore the message."); err != nil {
 				a.Logger.Error("send verification email", "error", err)
 				a.render(w, http.StatusServiceUnavailable, "message", map[string]any{
-					"Title": "Email not sent", "SignedIn": true, "Admin": session.Admin,
+					"Title": "Email not sent", "SignedIn": true, "Admin": session.Admin, "LogoutCSRF": security.CSRF(session.RawToken, "account"),
 					"Back": "/account", "BackLabel": "Back to your account",
 					"Heading": "Verification email could not be sent",
 					"Message": "Your display name was saved. The address was not added: it becomes active only once its verification link is opened, and that message could not be sent right now.",

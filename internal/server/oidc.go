@@ -79,7 +79,7 @@ func (a *App) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !covered {
-		a.render(w, http.StatusOK, "consent", map[string]any{"Title": "Authorize", "SignedIn": true, "Admin": session.Admin, "Client": client, "Scopes": scopes, "Fields": q.fields(), "CSRF": security.CSRF(session.RawToken, "consent")})
+		a.render(w, http.StatusOK, "consent", map[string]any{"Title": "Authorize", "SignedIn": true, "Admin": session.Admin, "LogoutCSRF": security.CSRF(session.RawToken, "account"), "Client": client, "Scopes": scopes, "Fields": q.fields(), "CSRF": security.CSRF(session.RawToken, "consent")})
 		return
 	}
 	a.issueAuthorizationCode(w, r, session, q, scopes)

@@ -62,6 +62,11 @@ code,pre{font-family:var(--mono)}
 .site-nav a{color:var(--muted);text-decoration:none;font-size:.9rem;transition:color .15s}
 .site-nav a:hover{color:var(--text)}
 .site-nav a[aria-current=page]{color:var(--text)}
+.site-nav form{display:contents}
+.site-nav__signout{font:inherit;font-size:.9rem;color:var(--muted);background:none;border:0;padding:0;cursor:pointer;
+  transition:color .15s}
+.site-nav__signout:hover{color:var(--text)}
+.site-nav__signout:focus-visible{outline:none;color:var(--text);text-decoration:underline}
 main.shell{flex:1 0 auto;padding-top:2.75rem;padding-bottom:4rem}
 .site-footer{margin-top:auto;border-top:1px solid var(--line-soft);color:var(--faint);font-size:.8rem}
 .site-footer .shell{display:flex;gap:1.25rem;flex-wrap:wrap;padding-top:1rem;padding-bottom:1.25rem}

@@ -29,7 +29,7 @@ func (a *App) adminClients(w http.ResponseWriter, r *http.Request) {
 	}
 	hosts, _ := a.Store.ListForwardHosts(r.Context())
 	admins, _ := a.Store.ListAdmins(r.Context())
-	a.render(w, 200, "admin_clients", map[string]any{"Title": "Clients", "SignedIn": true, "Admin": true, "NavAdmin": true, "Issuer": a.Config.Issuer, "Clients": clients, "ForwardHosts": hosts, "Admins": admins, "CSRF": security.CSRF(session.RawToken, "admin-clients")})
+	a.render(w, 200, "admin_clients", map[string]any{"Title": "Clients", "SignedIn": true, "Admin": true, "NavAdmin": true, "LogoutCSRF": security.CSRF(session.RawToken, "account"), "Issuer": a.Config.Issuer, "Clients": clients, "ForwardHosts": hosts, "Admins": admins, "CSRF": security.CSRF(session.RawToken, "admin-clients")})
 }
 
 func (a *App) adminCreateClient(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +87,7 @@ func (a *App) adminCreateClient(w http.ResponseWriter, r *http.Request) {
 	hosts, _ := a.Store.ListForwardHosts(r.Context())
 	admins, _ := a.Store.ListAdmins(r.Context())
 	a.Store.Audit(r.Context(), "client.created", &session.User.ID, nil, &id, clientIP(r), r.UserAgent(), map[string]any{"trusted": trusted, "scopes": scopes})
-	a.render(w, 201, "admin_clients", map[string]any{"Title": "Clients", "SignedIn": true, "Admin": true, "NavAdmin": true, "Issuer": a.Config.Issuer, "Clients": clients, "ForwardHosts": hosts, "Admins": admins, "CSRF": security.CSRF(session.RawToken, "admin-clients"), "NewSecret": secret})
+	a.render(w, 201, "admin_clients", map[string]any{"Title": "Clients", "SignedIn": true, "Admin": true, "NavAdmin": true, "LogoutCSRF": security.CSRF(session.RawToken, "account"), "Issuer": a.Config.Issuer, "Clients": clients, "ForwardHosts": hosts, "Admins": admins, "CSRF": security.CSRF(session.RawToken, "admin-clients"), "NewSecret": secret})
 }
 
 func (a *App) adminRotateClient(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +110,7 @@ func (a *App) adminRotateClient(w http.ResponseWriter, r *http.Request) {
 	hosts, _ := a.Store.ListForwardHosts(r.Context())
 	admins, _ := a.Store.ListAdmins(r.Context())
 	a.Store.Audit(r.Context(), "client.secret_rotated", &session.User.ID, nil, &clientID, clientIP(r), r.UserAgent(), nil)
-	a.render(w, 201, "admin_clients", map[string]any{"Title": "Clients", "SignedIn": true, "Admin": true, "NavAdmin": true, "Issuer": a.Config.Issuer, "Clients": clients, "ForwardHosts": hosts, "Admins": admins, "CSRF": security.CSRF(session.RawToken, "admin-clients"), "NewSecret": secret})
+	a.render(w, 201, "admin_clients", map[string]any{"Title": "Clients", "SignedIn": true, "Admin": true, "NavAdmin": true, "LogoutCSRF": security.CSRF(session.RawToken, "account"), "Issuer": a.Config.Issuer, "Clients": clients, "ForwardHosts": hosts, "Admins": admins, "CSRF": security.CSRF(session.RawToken, "admin-clients"), "NewSecret": secret})
 }
 
 func (a *App) adminToggleClient(w http.ResponseWriter, r *http.Request) {

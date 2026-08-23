@@ -17,6 +17,7 @@ const pageTemplates = `
     {{if .SignedIn}}
       <a href="/account"{{if .NavAccount}} aria-current="page"{{end}}>Account</a>
       {{if .Admin}}<a href="/admin/clients"{{if .NavAdmin}} aria-current="page"{{end}}>Admin</a>{{end}}
+      {{if .LogoutCSRF}}<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.LogoutCSRF}}"><button class="site-nav__signout">Sign out</button></form>{{end}}
     {{else}}
       <a href="/login">Sign in</a>
       <a href="/register">Create account</a>
@@ -222,6 +223,17 @@ const pageTemplates = `
     <div class="row-actions"><button class="btn btn--danger">Delete this account</button></div>
   </form>
 </section>
+{{template "foot" .}}{{end}}
+
+{{define "reauth"}}{{template "head" .}}
+<div class="center">
+  <div class="page-head">
+    <h1>Confirm it is you</h1>
+    <p class="lede">Changing passkeys, email, roles or clients needs a passkey used in the last five minutes.</p>
+  </div>
+  <a class="claustra-login" href="/login?continue={{.Continue}}"><span class="claustra-login__label">Use your passkey</span>{{template "login-button-lock"}}</a>
+  <p class="faint">You stay signed in - this only proves the passkey is still in your hands, and you come straight back here.</p>
+</div>
 {{template "foot" .}}{{end}}
 
 {{define "recover"}}{{template "head" .}}

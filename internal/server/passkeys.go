@@ -19,7 +19,7 @@ func (a *App) addPasskeyPage(w http.ResponseWriter, r *http.Request) {
 	if !a.requireRecent(w, r, session) {
 		return
 	}
-	a.render(w, 200, "passkey", map[string]any{"Title": "Add passkey", "SignedIn": true, "Admin": session.Admin, "Heading": "Add another passkey", "Description": "Register another device or security key for this account.", "Button": "Add passkey", "Begin": "/webauthn/passkey/begin", "Finish": "/webauthn/passkey/finish", "Method": "create", "Continue": "/account"})
+	a.render(w, 200, "passkey", map[string]any{"Title": "Add passkey", "SignedIn": true, "Admin": session.Admin, "LogoutCSRF": security.CSRF(session.RawToken, "account"), "Heading": "Add another passkey", "Description": "Register another device or security key for this account.", "Button": "Add passkey", "Begin": "/webauthn/passkey/begin", "Finish": "/webauthn/passkey/finish", "Method": "create", "Continue": "/account"})
 }
 func (a *App) addPasskeyBegin(w http.ResponseWriter, r *http.Request) {
 	session, ok := a.requireSession(w, r)
