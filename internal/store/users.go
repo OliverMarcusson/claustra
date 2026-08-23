@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 type Credential struct {
@@ -204,12 +205,40 @@ func (s *Store) SessionByToken(ctx context.Context, token string, idleTTL time.D
 }
 
 func (s *Store) RevokeSession(ctx context.Context, hash []byte) error {
-	_, err := s.Pool.Exec(ctx, `UPDATE sso_sessions SET revoked_at=now() WHERE id_hash=$1; UPDATE access_tokens SET revoked_at=now() WHERE session_hash=$1 AND revoked_at IS NULL`, hash)
-	return err
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `UPDATE sso_sessions SET revoked_at=now() WHERE id_hash=$1 AND revoked_at IS NULL`, hash); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE access_tokens SET revoked_at=now() WHERE session_hash=$1 AND revoked_at IS NULL`, hash); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) RevokeAllSessions(ctx context.Context, userID uuid.UUID) error {
-	_, err := s.Pool.Exec(ctx, `UPDATE sso_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL; UPDATE access_tokens SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, userID)
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err = revokeUserSessions(ctx, tx, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// revokeUserSessions ends every live session and access token a user holds.
+// Each statement runs on its own: the extended query protocol pgx uses for
+// parameterised queries rejects several commands in one string.
+func revokeUserSessions(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error {
+	if _, err := tx.Exec(ctx, `UPDATE sso_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, userID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE access_tokens SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, userID)
 	return err
 }
 

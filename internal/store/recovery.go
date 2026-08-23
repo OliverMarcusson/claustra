@@ -112,7 +112,7 @@ func (s *Store) FinalizeRecoveries(ctx context.Context) error {
 			_, err = tx.Exec(ctx, `UPDATE credentials SET state='active' WHERE id=$1 AND user_id=$2 AND state='recovery_pending'`, v.credential, v.user)
 		}
 		if err == nil {
-			_, err = tx.Exec(ctx, `UPDATE sso_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL; UPDATE access_tokens SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, v.user)
+			err = revokeUserSessions(ctx, tx, v.user)
 		}
 		if err == nil {
 			_, err = tx.Exec(ctx, `UPDATE recoveries SET state='completed',completed_at=now() WHERE id=$1 AND state='quarantine'`, v.id)

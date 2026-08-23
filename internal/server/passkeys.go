@@ -111,7 +111,11 @@ func (a *App) revokeAccountSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid session", 400)
 		return
 	}
-	_ = a.Store.RevokeOwnedSession(r.Context(), session.User.ID, hash)
+	if err = a.Store.RevokeOwnedSession(r.Context(), session.User.ID, hash); err != nil {
+		http.Error(w, "could not revoke session", 500)
+		return
+	}
+	a.Store.Audit(r.Context(), "session.revoked", &session.User.ID, &session.User.ID, nil, clientIP(r), r.UserAgent(), nil)
 	if string(hash) == string(session.Session.Hash) {
 		a.clearSessionCookie(w)
 	}

@@ -16,7 +16,10 @@ func (s *Store) ScheduleDeletion(ctx context.Context, userID uuid.UUID, due time
 	if _, err = tx.Exec(ctx, `UPDATE users SET status='deletion_pending',deletion_due_at=$2,updated_at=now() WHERE id=$1 AND status='active'`, userID, due); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE sso_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL; UPDATE access_tokens SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL; UPDATE consents SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, userID); err != nil {
+	if err = revokeUserSessions(ctx, tx, userID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE consents SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, userID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

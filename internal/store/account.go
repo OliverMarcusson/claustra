@@ -33,8 +33,18 @@ func (s *Store) ListSessions(ctx context.Context, userID uuid.UUID) ([]Session, 
 	return out, rows.Err()
 }
 func (s *Store) RevokeOwnedSession(ctx context.Context, userID uuid.UUID, hash []byte) error {
-	_, err := s.Pool.Exec(ctx, `UPDATE sso_sessions SET revoked_at=now() WHERE id_hash=$1 AND user_id=$2; UPDATE access_tokens SET revoked_at=now() WHERE session_hash=$1 AND user_id=$2`, hash, userID)
-	return err
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `UPDATE sso_sessions SET revoked_at=now() WHERE id_hash=$1 AND user_id=$2 AND revoked_at IS NULL`, hash, userID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE access_tokens SET revoked_at=now() WHERE session_hash=$1 AND user_id=$2 AND revoked_at IS NULL`, hash, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) RevokeCredential(ctx context.Context, userID, credentialID uuid.UUID) error {

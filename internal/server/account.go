@@ -47,7 +47,10 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid CSRF token", 403)
 		return
 	}
-	_ = a.Store.RevokeSession(r.Context(), session.Session.Hash)
+	if err := a.Store.RevokeSession(r.Context(), session.Session.Hash); err != nil {
+		http.Error(w, "could not sign out", 500)
+		return
+	}
 	a.clearSessionCookie(w)
 	a.Store.Audit(r.Context(), "session.revoked", &session.User.ID, &session.User.ID, nil, clientIP(r), r.UserAgent(), nil)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -62,7 +65,10 @@ func (a *App) logoutAll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid CSRF token", 403)
 		return
 	}
-	_ = a.Store.RevokeAllSessions(r.Context(), session.User.ID)
+	if err := a.Store.RevokeAllSessions(r.Context(), session.User.ID); err != nil {
+		http.Error(w, "could not sign out", 500)
+		return
+	}
 	a.clearSessionCookie(w)
 	a.Store.Audit(r.Context(), "sessions.revoked_all", &session.User.ID, &session.User.ID, nil, clientIP(r), r.UserAgent(), nil)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
