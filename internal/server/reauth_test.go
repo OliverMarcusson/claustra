@@ -40,7 +40,7 @@ func TestReauthPageOffersAWayThrough(t *testing.T) {
 		`id="passkey"`,
 		`data-begin="/webauthn/login/begin"`,
 		`data-continue="/admin/clients"`,
-		`src="/static/passkey.js"`,
+		`src="/static/passkey.js?v=`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("re-auth page cannot run the ceremony itself: missing %q", want)
@@ -216,5 +216,25 @@ func TestRevokedPasskeyIsNamedAsRevoked(t *testing.T) {
 	}
 	if got := assertionFailureMessage(false, "", false); got != "passkey assertion was not valid" {
 		t.Errorf("a genuine validation failure said %q", got)
+	}
+}
+
+// TestTemplatedAssetsAreVersioned guards the delivery path: Cloudflare caches
+// /static for hours and overrides the origin's max-age, so an unversioned URL
+// keeps serving the previous build after a deploy.
+func TestTemplatedAssetsAreVersioned(t *testing.T) {
+	for _, path := range []string{"/static/claustra.css", "/static/passkey.js", "/static/mark.svg"} {
+		got := asset(path)
+		if !strings.HasPrefix(got, path+"?v=") || len(got) <= len(path)+3 {
+			t.Errorf("%s is served unversioned as %q", path, got)
+		}
+	}
+	// Relying parties embed this one in their own pages.
+	if got := asset("/static/claustra-button.css"); got != "/static/claustra-button.css" {
+		t.Errorf("the button kit URL moved to %q", got)
+	}
+	// A changed asset has to produce a different URL, or the deploy is invisible.
+	if assetVersion("body{color:red}") == assetVersion("body{color:blue}") {
+		t.Error("two different stylesheets share a cache key")
 	}
 }

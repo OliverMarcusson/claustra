@@ -7,8 +7,8 @@ const pageTemplates = `
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
 <title>{{if .Title}}{{.Title}} · {{end}}Claustra</title>
-<link rel="stylesheet" href="/static/claustra.css">
-<link rel="icon" href="/static/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="{{asset "/static/claustra.css"}}">
+<link rel="icon" href="{{asset "/static/mark.svg"}}" type="image/svg+xml">
 </head>
 <body>
 <header class="site-header"><div class="site-header__inner">
@@ -83,7 +83,7 @@ const pageTemplates = `
   <button class="claustra-login" id="passkey" data-begin="{{.Begin}}" data-finish="{{.Finish}}" data-method="{{.Method}}" data-continue="{{.Continue}}" data-bootstrap="{{.Bootstrap}}"><span class="claustra-login__label">{{.Button}}</span>{{template "login-button-lock"}}</button>
   <p class="status" id="status" role="status"></p>
 </div>
-<script src="/static/passkey.js" defer></script>
+<script src="{{asset "/static/passkey.js"}}" defer></script>
 {{template "foot" .}}{{end}}
 
 {{define "consent"}}{{template "head" .}}
@@ -239,7 +239,7 @@ const pageTemplates = `
     {{range .Fields}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">
     {{end}}</form>
 {{end}}</div>
-<script src="/static/passkey.js" defer></script>
+<script src="{{asset "/static/passkey.js"}}" defer></script>
 {{template "foot" .}}{{end}}
 
 {{define "recover"}}{{template "head" .}}
