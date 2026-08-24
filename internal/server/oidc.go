@@ -252,13 +252,38 @@ func redirectOAuthError(w http.ResponseWriter, r *http.Request, redirect, state,
 	http.Redirect(w, r, target.String(), http.StatusFound)
 }
 
+// basicClientAuth reads client_secret_basic credentials.
+//
+// RFC 6749 §2.3.1 requires the client to form-urlencode the id and secret
+// before base64, and the server to reverse that. Claustra only ever issues
+// secrets in base64url, whose alphabet percent-encoding leaves untouched, so
+// skipping the decode happened to work with every client written against it —
+// right up until one used a secret from somewhere else. Decoding is identity
+// for a value with no escapes, so this costs nothing and stops the compliant
+// client being the one that breaks.
+func basicClientAuth(r *http.Request) (string, string, bool) {
+	rawID, rawSecret, ok := r.BasicAuth()
+	if !ok {
+		return "", "", false
+	}
+	id, err := url.QueryUnescape(rawID)
+	if err != nil {
+		id = rawID
+	}
+	secret, err := url.QueryUnescape(rawSecret)
+	if err != nil {
+		secret = rawSecret
+	}
+	return id, secret, true
+}
+
 func (a *App) token(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if err := r.ParseForm(); err != nil {
 		oauthError(w, 400, "invalid_request", "invalid form")
 		return
 	}
-	clientID, secret, ok := r.BasicAuth()
+	clientID, secret, ok := basicClientAuth(r)
 	if !ok || !a.Store.ValidateClientSecret(r.Context(), clientID, secret) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="claustra-token"`)
 		oauthError(w, 401, "invalid_client", "client authentication failed")
@@ -388,7 +413,7 @@ func (a *App) avatar(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) revoke(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	clientID, secret, ok := r.BasicAuth()
+	clientID, secret, ok := basicClientAuth(r)
 	if !ok || !a.Store.ValidateClientSecret(r.Context(), clientID, secret) {
 		oauthError(w, 401, "invalid_client", "client authentication failed")
 		return

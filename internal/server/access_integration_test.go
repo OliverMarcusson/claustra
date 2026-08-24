@@ -329,3 +329,46 @@ func TestAuthorizeStepUp(t *testing.T) {
 		}
 	})
 }
+
+// Clients are required to form-urlencode their credentials before base64. The
+// secrets Claustra issues are base64url, whose alphabet survives that
+// unchanged, so both an escaping and a non-escaping client have to work.
+func TestTokenAcceptsEncodedClientCredentials(t *testing.T) {
+	f := newAccessFixture(t)
+
+	exchange := func(t *testing.T, id, secret string) int {
+		t.Helper()
+		w := f.authorizeRequest(id)
+		if w.Code != http.StatusFound {
+			t.Fatalf("setup: authorize returned %d", w.Code)
+		}
+		issued, err := url.Parse(w.Header().Get("Location"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		form := url.Values{
+			"grant_type": {"authorization_code"}, "code": {issued.Query().Get("code")},
+			"redirect_uri":  {"https://client.example/callback"},
+			"code_verifier": {"dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"},
+		}
+		r := httptest.NewRequest(http.MethodPost, "https://claustra.example/token", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.SetBasicAuth(id, secret)
+		rec := httptest.NewRecorder()
+		f.app.token(rec, r)
+		return rec.Code
+	}
+
+	id := f.newClient(t, store.AccessOpen)
+	secret := "secret-" + id
+
+	if code := exchange(t, id, secret); code != http.StatusOK {
+		t.Errorf("plain credentials: got %d, want 200", code)
+	}
+	if code := exchange(t, url.QueryEscape(id), url.QueryEscape(secret)); code != http.StatusOK {
+		t.Errorf("form-urlencoded credentials: got %d, want 200", code)
+	}
+	if code := exchange(t, id, "wrong-secret"); code == http.StatusOK {
+		t.Error("a wrong secret was accepted")
+	}
+}
